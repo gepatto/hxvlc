@@ -27,6 +27,7 @@ import openfl.display.Bitmap;
 import openfl.display.BitmapData;
 import openfl.display3D.textures.RectangleTexture;
 import openfl.display3D.Context3DTextureFormat;
+import openfl.geom.Point;
 import openfl.Lib;
 import sys.thread.Mutex;
 
@@ -937,6 +938,25 @@ class Video extends Bitmap implements IVideo
 		}
 
 		return false;
+	}
+
+	/**
+	 * return a copy of the BitmapData of the current frame
+	 * @return BitmapData
+	 */
+	 public function getFrameStill():BitmapData{
+		var bmd = new BitmapData(bitmapData.width, bitmapData.height, true);
+		if(useTexture){
+			if ((__renderable || forceRendering) && texturePlanes != null){
+				textureMutex.acquire();
+				final texturePlanesBytes:Bytes = Bytes.ofData(cpp.Pointer.fromRaw(texturePlanes).toUnmanagedArray(textureWidth * textureHeight * 4));
+				bmd.setPixels(bitmapData.rect, texturePlanesBytes);
+				textureMutex.release();	
+			}
+		}else{
+			bmd.copyPixels(bitmapData, bitmapData.rect, new Point(0,0));
+		}
+		return bmd;
 	}
 
 	/**
