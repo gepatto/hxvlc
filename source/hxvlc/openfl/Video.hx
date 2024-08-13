@@ -213,6 +213,24 @@ static void audio_resume(void *data, int64_t pts)
 	hx::SetTopOfStack((int *)0, true);
 }
 
+static int audio_setup(void **data, char *format, unsigned *rate, unsigned *channels)
+{
+	Video_obj *self = reinterpret_cast<Video_obj *>(*data);
+
+	memcpy(format, "S16N", 4);
+
+	self->alSampleRate = (*rate);
+
+	const unsigned originalChannels = (*channels);
+
+	if (originalChannels > 2)
+		(*channels) = 2;
+
+	self->alChannels = (*channels);
+
+	return 0;
+}
+
 static void audio_set_volume(void *data, float volume, bool mute)
 {
 	hx::SetTopOfStack((int *)99, true);
@@ -291,9 +309,9 @@ class Video extends Bitmap implements IVideo
 
 	/**
 	 * Forces on the rendering of the bitmapData within this bitmap.
-	 */	
+	 */
 	public var forceRendering:Bool = false;
-	
+
 	/**
 	 * The media resource locator (MRL).
 	 */
@@ -495,6 +513,12 @@ class Video extends Bitmap implements IVideo
 		false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false
 	];
 
+	@:noCompletion
+	private var alSampleRate:cpp.UInt32 = 0;
+
+	@:noCompletion
+	private var alChannels:cpp.UInt32 = 0;
+
 	#if (HXVLC_OPENAL && lime_openal)
 	@:noCompletion
 	private final alMutex:Mutex = new Mutex();
@@ -684,7 +708,8 @@ class Video extends Bitmap implements IVideo
 							untyped __cpp__('audio_resume'), null, null, untyped __cpp__('this'));
 
 						LibVLC.audio_set_volume_callback(mediaPlayer, untyped __cpp__('audio_set_volume'));
-						LibVLC.audio_set_format(mediaPlayer, "S16N", 44100, 2);
+
+						LibVLC.audio_set_format_callbacks(mediaPlayer, untyped __cpp__('audio_setup'), null);
 					default:
 						Log.warn('Unable to use a sound output.');
 				}
@@ -1238,7 +1263,7 @@ class Video extends Bitmap implements IVideo
 				final samplesBytes:Bytes = Bytes.ofData(cpp.Pointer.fromRaw(samples).toUnmanagedArray(count));
 
 				final alBuffer:ALBuffer = alBuffers.shift();
-				alAudioContext.bufferData(alBuffer, AL.FORMAT_STEREO16, UInt8Array.fromBytes(samplesBytes), samplesBytes.length * 4, 44100);
+				alAudioContext.bufferData(alBuffer, alChannels == 2 ? AL.FORMAT_STEREO16 : AL.FORMAT_MONO16, UInt8Array.fromBytes(samplesBytes), samplesBytes.length * 2 * alChannels, alSampleRate);
 				alAudioContext.sourceQueueBuffer(alSource, alBuffer);
 
 				// TODO: Audio synchronisation in case of a sudden desync using pts.
