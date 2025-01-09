@@ -1,5 +1,6 @@
 package hxvlc.openfl;
 
+import haxe.io.Bytes;
 import haxe.io.BytesData;
 import haxe.Int64;
 import haxe.MainLoop;
@@ -17,6 +18,7 @@ import lime.utils.Log;
 import openfl.display.BitmapData;
 import openfl.display3D.textures.RectangleTexture;
 import openfl.Lib;
+import openfl.geom.Point;
 import sys.thread.Mutex;
 
 using StringTools;
@@ -414,6 +416,13 @@ class Video extends openfl.display.Bitmap
 	 */
 	public var onFormatSetup(default, null):Event<Void->Void> = new Event<Void->Void>();
 
+	/**
+	 * Event triggered when the first frame of a video is rendererd
+	 */
+	public var onFirstFrameRendered(default, null):Event<Void->Void> = new Event<Void->Void>();
+
+	private var firstFrameRendered:Bool = false;
+
 	@:noCompletion
 	private final mediaMutex:Mutex = new Mutex();
 
@@ -588,8 +597,7 @@ class Video extends openfl.display.Bitmap
 					if (LibVLC.event_attach(eventManager, LibVLC_MediaPlayerCorked, untyped __cpp__('event_manager_callbacks'), untyped __cpp__('this')) != 0)
 						Log.warn('Failed to attach event (MediaPlayerCorked)');
 
-					if (LibVLC.event_attach(eventManager, LibVLC_MediaPlayerUncorked, untyped __cpp__('event_manager_callbacks'),
-						untyped __cpp__('this')) != 0)
+					if (LibVLC.event_attach(eventManager, LibVLC_MediaPlayerUncorked, untyped __cpp__('event_manager_callbacks'), untyped __cpp__('this')) != 0)
 						Log.warn('Failed to attach event (MediaPlayerUncorked)');
 
 					if (LibVLC.event_attach(eventManager, LibVLC_MediaPlayerTimeChanged, untyped __cpp__('event_manager_callbacks'),
@@ -859,6 +867,33 @@ class Video extends openfl.display.Bitmap
 			if (currentMediaItem != null)
 				LibVLC.media_set_meta(currentMediaItem, e_meta, value);
 		}
+	}
+
+	/**
+	 * return a copy of the BitmapData of the current frame
+	 * @return BitmapData
+	 */
+	public function getFrameStill():BitmapData
+	{
+		var bmd = new BitmapData(bitmapData.width, bitmapData.height, false);
+		if (useTexture)
+		{
+			if ((__renderable || forceRendering) && texturePlanes != null)
+			{
+				textureMutex.acquire();
+				final texturePlanesBytes:Bytes = Bytes.ofData(cpp.Pointer.fromRaw(texturePlanes).toUnmanagedArray(textureWidth * textureHeight * 4));
+				bmd.setPixels(bitmapData.rect, texturePlanesBytes);
+				textureMutex.release();
+			}
+		}
+		else
+		{
+			if (bitmapData != null)
+			{
+				bmd.copyPixels(bitmapData, bitmapData.rect, new Point(0, 0));
+			}
+		}
+		return bmd;
 	}
 
 	/**
@@ -1285,6 +1320,12 @@ class Video extends openfl.display.Bitmap
 						__setRenderDirty();
 
 					textureMutex.release();
+
+					if (!firstFrameRendered)
+					{
+						firstFrameRendered = true;
+						onFirstFrameRendered.dispatch();
+					}
 				});
 			}
 		}
@@ -1302,6 +1343,7 @@ class Video extends openfl.display.Bitmap
 		final originalWidth:cpp.UInt32 = width[0];
 		final originalHeight:cpp.UInt32 = height[0];
 
+		firstFrameRendered = false;
 		textureMutex.acquire();
 
 		if (mediaPlayer != null
@@ -1406,7 +1448,8 @@ class Video extends openfl.display.Bitmap
 				if (alBuffer != null)
 				{
 					AL.bufferData(alBuffer, alChannels == 2 ? AL.FORMAT_STEREO16 : AL.FORMAT_MONO16,
-						lime.utils.UInt8Array.fromBytes(haxe.io.Bytes.ofData(alSamplesBuffer)), alSamplesBuffer.length * untyped __cpp__('sizeof(int16_t)') * alChannels, alSampleRate);
+						lime.utils.UInt8Array.fromBytes(haxe.io.Bytes.ofData(alSamplesBuffer)),
+						alSamplesBuffer.length * untyped __cpp__('sizeof(int16_t)') * alChannels, alSampleRate);
 
 					AL.sourceQueueBuffer(alSource, alBuffer);
 
